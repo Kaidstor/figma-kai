@@ -2,7 +2,6 @@ package command
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -58,16 +57,20 @@ func cmdConfig(p *output.Printer, args []string) int {
 	})
 }
 
-type doctorData struct {
-	Config      string `json:"config"`
-	TokenSource string `json:"token_source"`
-	TokenMask   string `json:"token_mask"`
-	User        string `json:"user,omitempty"`
-	FileKey     string `json:"file_key,omitempty"`
-	FileName    string `json:"file_name,omitempty"`
-	FileEdited  string `json:"file_edited,omitempty"`
+// check — строка doctor в общей для семьи CLI форме.
+type check struct {
+	Name    string `json:"name"`
+	OK      bool   `json:"ok"`
+	Details string `json:"details"`
+
+	// optional — провал не меняет код выхода; в --human помечается warn
+	optional bool
 }
 
+// cmdDoctor отвечает на вопрос «почему не работает»: где настройки, какой
+// токен подставился и видит ли он файл по умолчанию. Обязательная проверка
+// не прошла — код 2 (таймаут — 4); необязательная — ok: false и строка в
+// warning, код не меняется.
 func cmdDoctor(ctx context.Context, p *output.Printer, _ []string) int {
 	cfg, err := config.Load()
 	if err != nil {
@@ -79,43 +82,62 @@ func cmdDoctor(ctx context.Context, p *output.Printer, _ []string) int {
 	}
 	cli := figma.New(token.Value, config.RequestTimeout)
 
-	data := doctorData{
-		Config:      config.Path(),
-		TokenSource: token.Source,
-		TokenMask:   config.Mask(token.Value),
+	configDetails := config.Path()
+	if cfg.Path == "" {
+		configDetails += " (файла нет, только окружение)"
 	}
-	// Гоча: токену с одними file_*:read /v1/me отвечает 403 Invalid scope, хотя
-	// макеты он читает. Владелец — справка, настоящая проверка — доступ к файлу
+	checks := []check{
+		{Name: "config", OK: true, Details: configDetails},
+		{Name: "token", OK: true, Details: token.Source + ", " + config.Mask(token.Value)},
+	}
+	code := exit.OK
+
+	// Гоча: токену с одними file_*:read /v1/me отвечает 403 Invalid scope,
+	// хотя макеты он читает. Владелец — справка, настоящая проверка — файл
 	me, err := cli.Me(ctx)
-	var meErr *figma.Error
 	switch {
-	case errors.As(err, &meErr) && meErr.Kind == figma.KindAuth && cfg.FileKey != "":
-		p.Warn("владельца токена не узнать (%s) — для макетов это не нужно", meErr.Message)
-	case err != nil:
-		return fail(p, "doctor", fmt.Errorf("токен из %s: %w", token.Source, err))
-	default:
-		data.User = me.Handle
+	case err == nil:
+		details := me.Handle
 		if me.Email != "" {
-			data.User += " <" + me.Email + ">"
+			details += " <" + me.Email + ">"
 		}
+		checks = append(checks, check{Name: "user", OK: true, Details: details})
+	case figma.KindOf(err) == figma.KindAuth:
+		checks = append(checks, check{Name: "user", Details: "не узнать: нет scope current_user:read", optional: true})
+		p.Warn("владельца токена не узнать (нет scope current_user:read) — для макетов это не нужно")
+	default:
+		return fail(p, "doctor", fmt.Errorf("токен из %s: %w", token.Source, err))
 	}
 
-	if cfg.FileKey != "" {
-		data.FileKey = cfg.FileKey
+	switch {
+	case cfg.FileKey == "":
+		checks = append(checks, check{Name: "file", Details: "file_key не задан — голые id узлов не сработают", optional: true})
+		p.Warn("file_key не задан: голые id узлов не сработают, ссылки — да")
+	default:
 		meta, err := cli.File(ctx, cfg.FileKey)
-		if err != nil {
-			return fail(p, "doctor", fmt.Errorf("file_key %s, токен из %s: %w", cfg.FileKey, token.Source, err))
+		switch {
+		case err == nil:
+			checks = append(checks, check{Name: "file", OK: true,
+				Details: fmt.Sprintf("%s «%s», правка %s", cfg.FileKey, meta.Name, meta.LastModified)})
+		case figma.KindOf(err) == figma.KindTimeout:
+			checks = append(checks, check{Name: "file", Details: err.Error()})
+			code = exit.Timeout
+		default:
+			checks = append(checks, check{Name: "file", Details: err.Error()})
+			code = exit.Tool
 		}
-		data.FileName = meta.Name
-		data.FileEdited = meta.LastModified
 	}
 
-	return p.Result("doctor", exit.OK, data, func(w io.Writer) {
-		fmt.Fprintf(w, "настройки: %s\n", data.Config)
-		fmt.Fprintf(w, "токен:     %s %s\n", data.TokenSource, data.TokenMask)
-		fmt.Fprintf(w, "владелец:  %s\n", orDash(data.User))
-		if data.FileName != "" {
-			fmt.Fprintf(w, "файл:      %s «%s», правка %s\n", data.FileKey, data.FileName, data.FileEdited)
+	return p.Result("doctor", code, map[string]any{"checks": checks}, func(w io.Writer) {
+		for _, ch := range checks {
+			mark := "fail"
+			switch {
+			case ch.OK:
+				mark = "ok  "
+			case ch.optional:
+				mark = "warn"
+			}
+			fmt.Fprintf(w, "%s  %-7s %s\n", mark, ch.Name, ch.Details)
 		}
 	})
 }
