@@ -15,8 +15,21 @@ figma-kai node 3:4 --depth 2 --human
 ## Установка
 
 ```sh
-go install github.com/Kaidstor/figma-kai@latest
+brew install kaidstor/tap/figma-kai
+```
+
+Из исходников (нужен Go 1.26). Без `-ldflags` `figma-kai version` отвечает `dev`:
+
+```sh
+V=v0.1.0
+go install -ldflags "-X github.com/Kaidstor/figma-kai/internal/command.version=$V" github.com/Kaidstor/figma-kai@$V
+```
+
+Первый запуск:
+
+```sh
 figma-kai config init      # ~/.config/figma-kai/config.json
+figma-kai doctor --human   # токен, доступ к file_key
 ```
 
 Настройки: `token_ref` — ссылка на токен в [sec](https://github.com/Kaidstor/sec) (`<проект>/<KEY>`), `file_key` — файл по умолчанию для голых id узлов, `out_dir` — каталог картинок. Вместо файла — переменные `FIGMA_TOKEN`, `FIGMA_TOKEN_REF`, `FIGMA_FILE_KEY`, `FIGMA_KAI_OUT_DIR`.

@@ -1,0 +1,65 @@
+# GoReleaser — готовые бинарники figma-kai + Homebrew-cask, чтобы ставить CLI без Go.
+# Запуск: в CI на push git-тега `v*` (см. .github/workflows/release.yml) либо
+# локально `goreleaser release --clean` (нужен goreleaser и токены).
+# Проверить конфиг: `goreleaser check`. Сухой прогон: `goreleaser release --snapshot --clean`.
+#
+# РАСКЛАДКА РЕПО: go.mod лежит в корне, поэтому `dir` не задан. Если модуль
+# переедет в подпапку — добавь `dir: <папка>` в builds.
+version: 2
+
+project_name: figma-kai
+
+builds:
+  - id: figma-kai
+    main: .
+    binary: figma-kai
+    env:
+      - CGO_ENABLED=0 # sec дёргается через exec, cgo не нужен → статический бинарь
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/Kaidstor/figma-kai/internal/command.version={{ .Version }}
+
+archives:
+  - id: figma-kai
+    formats: [tar.gz]
+    name_template: "figma-kai_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
+
+# Автогенерация и пуш Homebrew-cask в tap-репозиторий. Пользователи ставят так:
+#   brew install kaidstor/tap/figma-kai
+# Cask, а не formula: ключ `brews` в goreleaser устарел, а для готового бинарника
+# Homebrew предпочитает cask.
+homebrew_casks:
+  - name: figma-kai
+    repository:
+      owner: kaidstor
+      name: homebrew-tap # публичный репо github.com/kaidstor/homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}" # PAT с правом записи в tap-репо (secret в CI)
+    directory: Casks
+    homepage: "https://github.com/Kaidstor/figma-kai"
+    description: "Макеты Figma из терминала: PNG экрана по ссылке и дерево слоёв с размерами, цветами и текстом"
+    binaries:
+      - figma-kai
+    commit_author:
+      name: goreleaser
+      email: goreleaser@users.noreply.github.com
+    # Неподписанный бинарь: без снятия карантина Gatekeeper блокирует запуск.
+    hooks:
+      pre:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/figma-kai"]
+          end

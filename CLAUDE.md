@@ -10,6 +10,8 @@ go install -ldflags "-X github.com/Kaidstor/figma-kai/internal/command.version=$
 
 Без `-ldflags` `figma-kai version` отвечает `dev`. Перед коммитом: `gofmt -l .`, `go vet ./...`, `go test ./...`.
 
+Релиз — `INSTALL=1 ./release.sh` (обёртка над `../_release/go-release.sh`): тег `vX.Y.Z` → `release.yml` с goreleaser → каск в `kaidstor/tap`. Гоча: dev-сборка `~/go/bin/figma-kai` стоит в PATH раньше brew и перекрывает каск — после проверки удалить её и сверить `command -v figma-kai`.
+
 ## Настройки, а не константы
 
 Ключей файлов и ссылок на секреты в коде нет: они живут в `~/.config/figma-kai/config.json` и переопределяются переменными окружения. Примеры в коде и тестах нейтральные (`AbC123`, `1:2`).
