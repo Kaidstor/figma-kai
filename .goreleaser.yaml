@@ -57,9 +57,12 @@ homebrew_casks:
       name: goreleaser
       email: goreleaser@users.noreply.github.com
     # Неподписанный бинарь: без снятия карантина Gatekeeper блокирует запуск.
-    hooks:
-      pre:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/figma-kai"]
-          end
+    # Не через hooks: goreleaser генерирует из них preflight do…end, который
+    # Homebrew 7 объявил устаревшим. {{staged_path}} — токен Homebrew,
+    # экранирован от шаблонов goreleaser.
+    custom_block: |
+      preflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/figma-kai"]
+        end
+      end
