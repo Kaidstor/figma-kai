@@ -50,7 +50,7 @@ homebrew_casks:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}" # PAT с правом записи в tap-репо (secret в CI)
     directory: Casks
     homepage: "https://github.com/Kaidstor/figma-kai"
-    description: "Макеты Figma из терминала: PNG экрана по ссылке и дерево слоёв с размерами, цветами и текстом"
+    description: "Макеты Figma из терминала: PNG экрана и дерево слоёв с размерами"
     binaries:
       - figma-kai
     commit_author:
